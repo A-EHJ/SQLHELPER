@@ -1,0 +1,43 @@
+@page "/setup"
+@inject SetupState SetupState
+@inject ToastService ToastService
+
+<PageTitle>Setup</PageTitle>
+
+<h1 class="h3 mb-4">Setup</h1>
+
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <p class="lead">Use this space to verify configuration before enabling production execution.</p>
+        <ul>
+            <li>Validate environment variables and connection strings.</li>
+            <li>Confirm credentials for target databases.</li>
+            <li>Define default database and schema preferences.</li>
+        </ul>
+
+        @if (SetupState.IsSetupRequired)
+        {
+            <div class="alert alert-warning">Setup required. Complete the checklist and confirm to continue.</div>
+            <button class="btn btn-success" @onclick="Complete">Mark as configured</button>
+        }
+        else
+        {
+            <div class="alert alert-success">Setup complete. You can re-open this page to reset.</div>
+            <button class="btn btn-outline-danger" @onclick="Reset">Require setup again</button>
+        }
+    </div>
+</div>
+
+@code {
+    private void Complete()
+    {
+        SetupState.MarkConfigured();
+        ToastService.ShowSuccess("Setup", "Configuration marked as complete.");
+    }
+
+    private void Reset()
+    {
+        SetupState.MarkRequiresSetup();
+        ToastService.ShowWarning("Setup", "Marked as requiring setup.");
+    }
+}

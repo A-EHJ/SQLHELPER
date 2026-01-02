@@ -1,0 +1,76 @@
+@page "/notes"
+@inject SqlHelperService SqlHelperService
+@inject ToastService ToastService
+
+<PageTitle>Notes</PageTitle>
+
+<h1 class="h3 mb-4">Notes</h1>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card shadow-sm border-0">
+            <div class="card-header">Add note</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Title</label>
+                    <InputText class="form-control" @bind-Value="_title" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Content</label>
+                    <InputTextArea class="form-control" @bind-Value="_content" Rows="5" />
+                </div>
+                <button class="btn btn-primary" @onclick="SaveNote">Save</button>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header">Saved notes</div>
+            <div class="list-group list-group-flush">
+                @foreach (var note in _notes)
+                {
+                    <div class="list-group-item">
+                        <div class="fw-semibold">@note.Title</div>
+                        <div class="small text-muted">@note.CreatedOn.LocalDateTime</div>
+                        <div>@note.Content</div>
+                    </div>
+                }
+                @if (!_notes.Any())
+                {
+                    <div class="list-group-item text-muted">No notes stored.</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<NoteEntry> _notes = Array.Empty<NoteEntry>();
+    private string _title = string.Empty;
+    private string _content = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _notes = await SqlHelperService.GetNotesAsync();
+    }
+
+    private async Task SaveNote()
+    {
+        if (string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_content))
+        {
+            ToastService.ShowWarning("Notes", "Provide a title and content.");
+            return;
+        }
+
+        await SqlHelperService.AddNoteAsync(_title, _content);
+        ToastService.ShowSuccess("Notes", "Note saved.");
+        _title = string.Empty;
+        _content = string.Empty;
+        await ReloadAsync();
+    }
+}

@@ -1,0 +1,41 @@
+@implements IDisposable
+@inject ToastService ToastService
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    @foreach (var toast in ToastService.Messages)
+    {
+        <div class="toast align-items-center text-bg-@GetBootstrapClass(toast.Level) border-0 show mb-2 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <div class="fw-semibold">@toast.Title</div>
+                    <div class="small">@toast.Message</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" aria-label="Close" @onclick="() => Dismiss(toast.Id)"></button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ToastService.OnChange += StateChanged;
+    }
+
+    private void StateChanged() => InvokeAsync(StateHasChanged);
+
+    private void Dismiss(Guid id) => ToastService.Dismiss(id);
+
+    private string GetBootstrapClass(ToastLevel level) => level switch
+    {
+        ToastLevel.Success => "success",
+        ToastLevel.Warning => "warning",
+        ToastLevel.Danger => "danger",
+        _ => "primary"
+    };
+
+    public void Dispose()
+    {
+        ToastService.OnChange -= StateChanged;
+    }
+}
