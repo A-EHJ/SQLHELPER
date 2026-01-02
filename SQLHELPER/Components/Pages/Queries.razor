@@ -1,40 +1,229 @@
-@page "/queries"
-@inject SqlHelperService SqlHelperService
+@page "/library"
+@implements IDisposable
+@inject SqlWorkspaceService Workspace
+@inject ConnectionState ConnectionState
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+@inject SetupState SetupState
 
-<PageTitle>Queries</PageTitle>
+<PageTitle>Library</PageTitle>
 
-<h1 class="h3 mb-4">Queries</h1>
+<h1 class="h3 mb-3">Query library</h1>
 
-<div class="card shadow-sm border-0">
-    <div class="card-header d-flex justify-content-between align-items-center">
+@if (!_hasProfile)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2">🔌</span>
         <div>
-            <div class="fw-semibold">Saved queries</div>
-            <div class="small text-muted">Templates ready to execute</div>
+            Save a connection profile to load the library.
+            <button class="btn btn-link btn-sm" @onclick='() => Navigation.NavigateTo("/connect")'>Go to Connect</button>
         </div>
-        <NavLink class="btn btn-primary btn-sm" href="/queries/editor">Open editor</NavLink>
     </div>
-    <div class="list-group list-group-flush">
-        @foreach (var query in _queries)
-        {
-            <div class="list-group-item d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="fw-semibold">@query.Title</div>
-                    <div class="small text-muted">@query.Statement</div>
-                    <span class="badge bg-info text-dark">@query.Database</span>
+}
+
+@if (!_isSetupReady)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2">⚙️</span>
+        <div>
+            Run setup to create the SQLHELPER database before managing saved queries.
+            <button class="btn btn-link btn-sm" @onclick='() => Navigation.NavigateTo("/setup")'>Open setup</button>
+        </div>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header">New / edit</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Title</label>
+                    <input class="form-control" @bind="_form.Title" />
                 </div>
-                <div class="text-end">
-                    <NavLink class="btn btn-sm btn-outline-primary" href="/queries/editor">Load</NavLink>
+                <div class="mb-3">
+                    <label class="form-label">SQL</label>
+                    <InputTextArea class="form-control" @bind-Value="_form.Statement" Rows="6"></InputTextArea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Tags</label>
+                    <input class="form-control" @bind="_form.Tags" placeholder="maintenance,reporting" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Database scope (optional)</label>
+                    <input class="form-control" @bind="_form.DatabaseName" placeholder="SIN" />
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(!_hasProfile || !_isSetupReady)">Save</button>
+                    <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
                 </div>
             </div>
-        }
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Saved queries</span>
+                <input class="form-control form-control-sm w-50" @bind="_search" @bind:event="oninput" placeholder="Search title/tags" />
+            </div>
+            <div class="list-group list-group-flush">
+                @if (!_queries.Any())
+                {
+                    <div class="list-group-item text-muted">No saved queries yet.</div>
+                }
+                else
+                {
+                    @foreach (var query in FilteredQueries)
+                    {
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <div class="fw-semibold">@query.Title</div>
+                                    <div class="small text-muted">@query.Tags</div>
+                                    <span class="badge bg-info text-dark">@(!string.IsNullOrWhiteSpace(query.DatabaseName) ? query.DatabaseName : "Any DB")</span>
+                                </div>
+                                <div class="text-end">
+                                    <button class="btn btn-sm btn-link" @onclick='() => LoadIntoRunner(query.Id)'>Load into runner</button>
+                                    <button class="btn btn-sm btn-outline-primary" @onclick='() => Edit(query)'>Edit</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick='() => DeleteAsync(query.Id)'>Delete</button>
+                                </div>
+                            </div>
+                            <div class="small mt-2 text-truncate">@query.Statement</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
     </div>
 </div>
 
 @code {
-    private IReadOnlyList<QueryDefinition> _queries = Array.Empty<QueryDefinition>();
+    private List<SavedQuery> _queries = new();
+    private SavedQuery _form = new();
+    private string _search = string.Empty;
+    private bool _hasProfile;
+    private bool _isSetupReady;
+
+    private IEnumerable<SavedQuery> FilteredQueries =>
+        string.IsNullOrWhiteSpace(_search)
+            ? _queries
+            : _queries.Where(q =>
+                (!string.IsNullOrWhiteSpace(q.Title) && q.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(q.Tags) && q.Tags.Contains(_search, StringComparison.OrdinalIgnoreCase)));
 
     protected override async Task OnInitializedAsync()
     {
-        _queries = await SqlHelperService.GetSavedQueriesAsync();
+        ConnectionState.OnChange += OnProfileChanged;
+        SetupState.OnChange += OnSetupChanged;
+        await ConnectionState.EnsureLoadedAsync();
+        await LoadStateAsync();
+    }
+
+    private async Task LoadStateAsync()
+    {
+        _hasProfile = ConnectionState.Profile.HasRequiredValues;
+        if (!_hasProfile)
+        {
+            _queries.Clear();
+            _isSetupReady = false;
+            return;
+        }
+
+        _isSetupReady = await Workspace.IsSetupCompleteAsync();
+        SetupState.SetSetupStatus(_isSetupReady);
+        if (_isSetupReady)
+        {
+            await LoadQueriesAsync();
+        }
+    }
+
+    private async Task LoadQueriesAsync()
+    {
+        try
+        {
+            _queries = (await Workspace.GetSavedQueriesAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Library", ex.Message);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Title) || string.IsNullOrWhiteSpace(_form.Statement))
+        {
+            Toasts.ShowWarning("Library", "Title and SQL are required.");
+            return;
+        }
+
+        try
+        {
+            _form.UpdatedAt = DateTimeOffset.UtcNow;
+            await Workspace.UpsertSavedQueryAsync(_form);
+            Toasts.ShowSuccess("Library", "Saved.");
+            await LoadQueriesAsync();
+            ResetForm();
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Library", ex.Message);
+        }
+    }
+
+    private void ResetForm()
+    {
+        _form = new SavedQuery();
+    }
+
+    private void Edit(SavedQuery query)
+    {
+        _form = new SavedQuery
+        {
+            Id = query.Id,
+            Title = query.Title,
+            Statement = query.Statement,
+            Tags = query.Tags,
+            DatabaseName = query.DatabaseName,
+            CreatedAt = query.CreatedAt,
+            UpdatedAt = query.UpdatedAt
+        };
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        try
+        {
+            await Workspace.DeleteSavedQueryAsync(id);
+            _queries.RemoveAll(q => q.Id == id);
+            Toasts.ShowSuccess("Library", "Deleted.");
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Library", ex.Message);
+        }
+    }
+
+    private void LoadIntoRunner(Guid id)
+    {
+        Navigation.NavigateTo($"/query/{id}");
+    }
+
+    private async void OnProfileChanged()
+    {
+        await LoadStateAsync();
+        StateHasChanged();
+    }
+
+    private async void OnSetupChanged()
+    {
+        await LoadStateAsync();
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        ConnectionState.OnChange -= OnProfileChanged;
+        SetupState.OnChange -= OnSetupChanged;
     }
 }

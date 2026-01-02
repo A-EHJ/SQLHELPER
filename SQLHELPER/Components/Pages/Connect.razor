@@ -1,0 +1,109 @@
+@page "/connect"
+@inject ConnectionState ConnectionState
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+
+<PageTitle>Connect</PageTitle>
+
+<h1 class="h3 mb-3">Connection profile</h1>
+
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Server (hostname or ip[,port])</label>
+                <input class="form-control" @bind="_profile.Server" placeholder="localhost,1433" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">User</label>
+                <input class="form-control" @bind="_profile.User" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Password</label>
+                <input class="form-control" type="password" @bind="_profile.Password" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Default target DB</label>
+                <input class="form-control" @bind="_profile.DefaultTargetDb" placeholder="SIN" />
+            </div>
+            <div class="col-md-4">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" id="encryptCheck" @bind="_profile.Encrypt" />
+                    <label class="form-check-label" for="encryptCheck">
+                        Encrypt
+                    </label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check mt-4">
+                    <input class="form-check-input" type="checkbox" id="trustCheck" @bind="_profile.TrustServerCertificate" />
+                    <label class="form-check-label" for="trustCheck">
+                        Trust server certificate
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2 mt-4">
+            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@_isSaving">Save profile</button>
+            <button class="btn btn-outline-secondary" @onclick="TestAsync">Test connection</button>
+            <button class="btn btn-link" @onclick='() => Navigation.NavigateTo("/dashboard")'>Back to dashboard</button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_statusMessage))
+        {
+            <div class="alert @(_statusSuccess ? "alert-success" : "alert-danger") mt-3">
+                @_statusMessage
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private ConnectionProfile _profile = new();
+    private string? _statusMessage;
+    private bool _statusSuccess;
+    private bool _isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ConnectionState.EnsureLoadedAsync();
+        _profile = ConnectionState.Profile.Clone();
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        _statusMessage = null;
+        try
+        {
+            await ConnectionState.SaveAsync(_profile);
+            _statusSuccess = true;
+            _statusMessage = "Profile saved to ProtectedLocalStorage.";
+            Toasts.ShowSuccess("Connect", "Profile saved.");
+        }
+        catch (Exception ex)
+        {
+            _statusSuccess = false;
+            _statusMessage = ex.Message;
+            Toasts.ShowDanger("Connect", ex.Message);
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task TestAsync()
+    {
+        var (success, message) = await ConnectionState.TestConnectionAsync(_profile);
+        _statusSuccess = success;
+        _statusMessage = message;
+        if (success)
+        {
+            Toasts.ShowSuccess("Connect", message);
+        }
+        else
+        {
+            Toasts.ShowWarning("Connect", message);
+        }
+    }
+}

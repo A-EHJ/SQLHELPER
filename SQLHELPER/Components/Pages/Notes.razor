@@ -1,43 +1,108 @@
 @page "/notes"
-@inject SqlHelperService SqlHelperService
-@inject ToastService ToastService
+@implements IDisposable
+@inject SqlWorkspaceService Workspace
+@inject ConnectionState ConnectionState
+@inject ToastService Toasts
+@inject SetupState SetupState
+@inject NavigationManager Navigation
 
 <PageTitle>Notes</PageTitle>
 
-<h1 class="h3 mb-4">Notes</h1>
+<h1 class="h3 mb-3">Notes</h1>
+
+@if (!_hasProfile)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2">🔌</span>
+        <div>
+            Save a connection profile to load notes.
+            <button class="btn btn-link btn-sm" @onclick='() => Navigation.NavigateTo("/connect")'>Go to Connect</button>
+        </div>
+    </div>
+}
+
+@if (!_isSetupReady)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2">⚙️</span>
+        <div>
+            Run setup to create the SQLHELPER database before storing notes.
+            <button class="btn btn-link btn-sm" @onclick='() => Navigation.NavigateTo("/setup")'>Open setup</button>
+        </div>
+    </div>
+}
 
 <div class="row g-3">
     <div class="col-lg-5">
-        <div class="card shadow-sm border-0">
-            <div class="card-header">Add note</div>
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header">New / edit</div>
             <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label">Title</label>
-                    <InputText class="form-control" @bind-Value="_title" />
+                    <InputText class="form-control" @bind-Value="_form.Title" />
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Content</label>
-                    <InputTextArea class="form-control" @bind-Value="_content" Rows="5" />
+                    <label class="form-label">Tags</label>
+                    <input class="form-control" @bind="_form.Tags" placeholder="backup,plan" />
                 </div>
-                <button class="btn btn-primary" @onclick="SaveNote">Save</button>
+                <div class="mb-3">
+                    <label class="form-label">Database (optional)</label>
+                    <input class="form-control" @bind="_form.DatabaseName" placeholder="SIN" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Body</label>
+                    <InputTextArea class="form-control" @bind-Value="_form.Body" Rows="6" />
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(!_hasProfile || !_isSetupReady)">Save</button>
+                    <button class="btn btn-outline-secondary" @onclick="ResetForm">Reset</button>
+                </div>
             </div>
         </div>
     </div>
     <div class="col-lg-7">
         <div class="card shadow-sm border-0 h-100">
-            <div class="card-header">Saved notes</div>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>Notes</span>
+                <div class="d-flex gap-2">
+                    <input class="form-control form-control-sm" style="width: 220px;" @bind="_search" @bind:event="oninput" placeholder="Search text" />
+                    <input class="form-control form-control-sm" style="width: 180px;" @bind="_tagFilter" @bind:event="oninput" placeholder="Filter tags" />
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ReloadAsync">Refresh</button>
+                </div>
+            </div>
             <div class="list-group list-group-flush">
-                @foreach (var note in _notes)
-                {
-                    <div class="list-group-item">
-                        <div class="fw-semibold">@note.Title</div>
-                        <div class="small text-muted">@note.CreatedOn.LocalDateTime</div>
-                        <div>@note.Content</div>
-                    </div>
-                }
                 @if (!_notes.Any())
                 {
                     <div class="list-group-item text-muted">No notes stored.</div>
+                }
+                else
+                {
+                    @foreach (var note in FilteredNotes)
+                    {
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <div class="fw-semibold">@note.Title</div>
+                                    <div class="small text-muted">
+                                        @note.CreatedAt.LocalDateTime
+                                        @if (!string.IsNullOrWhiteSpace(note.DatabaseName))
+                                        {
+                                            <span class="badge bg-info text-dark ms-1">@note.DatabaseName</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick='() => Edit(note)'>Edit</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick='() => DeleteAsync(note.Id)'>Delete</button>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(note.Tags))
+                            {
+                                <div class="small text-muted mt-1">@note.Tags</div>
+                            }
+                            <div class="mt-2">@note.Body</div>
+                        </div>
+                    }
                 }
             </div>
         </div>
@@ -45,32 +110,135 @@
 </div>
 
 @code {
-    private IReadOnlyList<NoteEntry> _notes = Array.Empty<NoteEntry>();
-    private string _title = string.Empty;
-    private string _content = string.Empty;
+    private List<NoteItem> _notes = new();
+    private NoteItem _form = new();
+    private string _search = string.Empty;
+    private string _tagFilter = string.Empty;
+    private bool _hasProfile;
+    private bool _isSetupReady;
+
+    private IEnumerable<NoteItem> FilteredNotes =>
+        _notes.Where(n =>
+            (string.IsNullOrWhiteSpace(_search) ||
+             (n.Title?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+             (n.Body?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+             (n.Tags?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)) &&
+            (string.IsNullOrWhiteSpace(_tagFilter) ||
+             (n.Tags?.Contains(_tagFilter, StringComparison.OrdinalIgnoreCase) ?? false)));
 
     protected override async Task OnInitializedAsync()
     {
-        await ReloadAsync();
+        ConnectionState.OnChange += OnProfileChanged;
+        SetupState.OnChange += OnSetupChanged;
+        await ConnectionState.EnsureLoadedAsync();
+        await LoadStateAsync();
+    }
+
+    private async Task LoadStateAsync()
+    {
+        _hasProfile = ConnectionState.Profile.HasRequiredValues;
+        if (!_hasProfile)
+        {
+            _isSetupReady = false;
+            _notes.Clear();
+            return;
+        }
+
+        _isSetupReady = await Workspace.IsSetupCompleteAsync();
+        SetupState.SetSetupStatus(_isSetupReady);
+        if (_isSetupReady)
+        {
+            await ReloadAsync();
+        }
     }
 
     private async Task ReloadAsync()
     {
-        _notes = await SqlHelperService.GetNotesAsync();
-    }
-
-    private async Task SaveNote()
-    {
-        if (string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_content))
+        if (!_isSetupReady)
         {
-            ToastService.ShowWarning("Notes", "Provide a title and content.");
             return;
         }
 
-        await SqlHelperService.AddNoteAsync(_title, _content);
-        ToastService.ShowSuccess("Notes", "Note saved.");
-        _title = string.Empty;
-        _content = string.Empty;
-        await ReloadAsync();
+        try
+        {
+            _notes = (await Workspace.SearchNotesAsync(_search, _tagFilter)).ToList();
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Notes", ex.Message);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Title) || string.IsNullOrWhiteSpace(_form.Body))
+        {
+            Toasts.ShowWarning("Notes", "Title and body are required.");
+            return;
+        }
+
+        try
+        {
+            _form.UpdatedAt = DateTimeOffset.UtcNow;
+            await Workspace.UpsertNoteAsync(_form);
+            Toasts.ShowSuccess("Notes", "Saved.");
+            await ReloadAsync();
+            ResetForm();
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Notes", ex.Message);
+        }
+    }
+
+    private void ResetForm()
+    {
+        _form = new NoteItem();
+    }
+
+    private void Edit(NoteItem note)
+    {
+        _form = new NoteItem
+        {
+            Id = note.Id,
+            Title = note.Title,
+            Body = note.Body,
+            Tags = note.Tags,
+            DatabaseName = note.DatabaseName,
+            CreatedAt = note.CreatedAt,
+            UpdatedAt = note.UpdatedAt
+        };
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        try
+        {
+            await Workspace.DeleteNoteAsync(id);
+            _notes.RemoveAll(n => n.Id == id);
+            Toasts.ShowSuccess("Notes", "Deleted.");
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Notes", ex.Message);
+        }
+    }
+
+    private async void OnProfileChanged()
+    {
+        await LoadStateAsync();
+        StateHasChanged();
+    }
+
+    private async void OnSetupChanged()
+    {
+        await LoadStateAsync();
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        ConnectionState.OnChange -= OnProfileChanged;
+        SetupState.OnChange -= OnSetupChanged;
     }
 }
