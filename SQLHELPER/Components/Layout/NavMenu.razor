@@ -1,30 +1,46 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">SQLHELPER</a>
-    </div>
-</div>
+﻿@implements IDisposable
+@inject SetupState SetupState
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+<div class="nav-menu">
+    <div class="nav-section text-uppercase text-secondary fw-semibold small px-3">Workspace</div>
+    <nav class="nav flex-column">
+        <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+            <span class="me-2" aria-hidden="true">📊</span> Dashboard
+        </NavLink>
+        <NavLink class="nav-link" href="/databases">
+            <span class="me-2" aria-hidden="true">🗄️</span> Databases
+        </NavLink>
+        <NavLink class="nav-link" href="/maintenance">
+            <span class="me-2" aria-hidden="true">🛠️</span> Maintenance
+        </NavLink>
+        <NavLink class="nav-link" href="/queries">
+            <span class="me-2" aria-hidden="true">🧩</span> Queries
+        </NavLink>
+        <NavLink class="nav-link" href="/history">
+            <span class="me-2" aria-hidden="true">⏱️</span> History
+        </NavLink>
+        <NavLink class="nav-link" href="/notes">
+            <span class="me-2" aria-hidden="true">📝</span> Notes
+        </NavLink>
+        @if (SetupState.IsSetupRequired)
+        {
+            <NavLink class="nav-link text-warning" href="/setup">
+                <span class="me-2" aria-hidden="true">⚙️</span> Setup
             </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
+        }
     </nav>
 </div>
 
+@code {
+    protected override void OnInitialized()
+    {
+        SetupState.OnChange += OnStateChanged;
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        SetupState.OnChange -= OnStateChanged;
+    }
+}

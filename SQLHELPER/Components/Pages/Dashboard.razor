@@ -1,0 +1,118 @@
+@page "/"
+@inject SqlHelperService SqlHelperService
+@inject SetupState SetupState
+
+<PageTitle>Dashboard</PageTitle>
+
+<h1 class="h3 mb-4">Dashboard</h1>
+<div class="row g-3">
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="text-muted text-uppercase small">Databases</div>
+                <div class="fs-3 fw-semibold">@_snapshot.Databases</div>
+                <div class="small text-secondary">Registered in this workspace</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="text-muted text-uppercase small">Recent activity</div>
+                <div class="fs-3 fw-semibold">@_snapshot.RecentActivity</div>
+                <div class="small text-secondary">Executions in the last hour</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="text-muted text-uppercase small">Maintenance</div>
+                <div class="fs-3 fw-semibold">@_snapshot.PendingMaintenance</div>
+                <div class="small text-secondary">Pending checks</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="text-muted text-uppercase small">Saved queries</div>
+                <div class="fs-3 fw-semibold">@_snapshot.SavedQueries</div>
+                <div class="small text-secondary">Reusable templates</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mt-3">
+    <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Databases</span>
+                <NavLink class="btn btn-link btn-sm" href="/databases">View all</NavLink>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    @foreach (var db in _databases)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-semibold">@db.Name</div>
+                                <div class="small text-muted">@db.EngineVersion</div>
+                            </div>
+                            <span class="badge bg-@(db.Status == "Online" ? "success" : "warning")">@db.Status</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Latest history</span>
+                <NavLink class="btn btn-link btn-sm" href="/history">Open history</NavLink>
+            </div>
+            <div class="card-body">
+                <div class="timeline">
+                    @foreach (var item in _history.Take(4))
+                    {
+                        <div class="timeline-entry">
+                            <div class="fw-semibold">@item.Title</div>
+                            <div class="small text-muted">@item.ExecutedOn.LocalDateTime</div>
+                            <div class="badge bg-secondary">@item.Status</div>
+                        </div>
+                    }
+                </div>
+                @if (!_history.Any())
+                {
+                    <div class="text-muted">No history yet.</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (SetupState.IsSetupRequired)
+{
+    <div class="alert alert-warning mt-4 d-flex align-items-center" role="alert">
+        <span class="me-2" aria-hidden="true">⚙️</span>
+        <div>
+            Setup is required before executing live workloads.
+            <NavLink href="/setup" class="alert-link ms-1">Open setup</NavLink>
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardSnapshot _snapshot = new(0, 0, 0, 0);
+    private IReadOnlyList<DatabaseInfo> _databases = Array.Empty<DatabaseInfo>();
+    private IReadOnlyList<QueryHistoryEntry> _history = Array.Empty<QueryHistoryEntry>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _snapshot = await SqlHelperService.GetDashboardAsync();
+        _databases = await SqlHelperService.GetDatabasesAsync();
+        _history = await SqlHelperService.GetHistoryAsync();
+    }
+}

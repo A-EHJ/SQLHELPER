@@ -1,0 +1,92 @@
+@page "/databases"
+@inject SqlHelperService SqlHelperService
+@inject ToastService ToastService
+
+<PageTitle>Databases</PageTitle>
+
+<h1 class="h3 mb-4">Databases</h1>
+
+<div class="card shadow-sm border-0">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <div class="fw-semibold">Registered databases</div>
+            <div class="small text-muted">Overview of known instances</div>
+        </div>
+        <button class="btn btn-outline-primary btn-sm" @onclick="Refresh">Refresh</button>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Engine</th>
+                    <th scope="col">Tables</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var db in _databases)
+                {
+                    <tr>
+                        <td class="fw-semibold">@db.Name</td>
+                        <td>@db.EngineVersion</td>
+                        <td>@db.Tables</td>
+                        <td>
+                            <span class="badge bg-@(db.Status == "Online" ? "success" : "warning")">@db.Status</span>
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowMaintenancePrompt(db.Name)">Maintenance</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<ConfirmDangerModal Title="Run maintenance" Message="Launch health checks for this database?" ConfirmText="Run" Visible="@_confirmVisible" OnConfirm="ConfirmMaintenance" OnCancel="HideMaintenancePrompt" />
+
+@code {
+    private IReadOnlyList<DatabaseInfo> _databases = Array.Empty<DatabaseInfo>();
+    private string? _pendingMaintenanceDb;
+    private bool _confirmVisible;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _databases = await SqlHelperService.GetDatabasesAsync();
+    }
+
+    private async Task Refresh()
+    {
+        await LoadAsync();
+        ToastService.ShowInfo("Databases", "List refreshed");
+    }
+
+    private void ShowMaintenancePrompt(string database)
+    {
+        _pendingMaintenanceDb = database;
+        _confirmVisible = true;
+    }
+
+    private void HideMaintenancePrompt()
+    {
+        _pendingMaintenanceDb = null;
+        _confirmVisible = false;
+    }
+
+    private void ConfirmMaintenance()
+    {
+        if (!string.IsNullOrWhiteSpace(_pendingMaintenanceDb))
+        {
+            ToastService.ShowSuccess("Maintenance", $"Health checks started for {_pendingMaintenanceDb}.");
+        }
+
+        HideMaintenancePrompt();
+    }
+}
