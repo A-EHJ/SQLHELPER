@@ -1,44 +1,61 @@
 @page "/"
-@inject SqlHelperService SqlHelperService
+@page "/dashboard"
+@implements IDisposable
+@inject SqlWorkspaceService Workspace
+@inject ConnectionState ConnectionState
 @inject SetupState SetupState
+@inject ToastService Toasts
+@inject NavigationManager NavigationManager
 
 <PageTitle>Dashboard</PageTitle>
 
-<h1 class="h3 mb-4">Dashboard</h1>
+<h1 class="h3 mb-4">SQL Maintenance Helper</h1>
+
+@if (!_hasProfile)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2" aria-hidden="true">🔌</span>
+        <div>
+            Configure a connection profile to load server metadata.
+            <button class="btn btn-link btn-sm" @onclick='() => NavigationManager.NavigateTo("/connect")'>Go to Connect</button>
+        </div>
+    </div>
+}
+
 <div class="row g-3">
     <div class="col-md-3">
         <div class="card shadow-sm border-0">
             <div class="card-body">
+                <div class="text-muted text-uppercase small">Target database</div>
+                <div class="fs-5 fw-semibold">@_targetDb</div>
+                <div class="small text-secondary">Saved in your profile</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
                 <div class="text-muted text-uppercase small">Databases</div>
-                <div class="fs-3 fw-semibold">@_snapshot.Databases</div>
-                <div class="small text-secondary">Registered in this workspace</div>
+                <div class="fs-3 fw-semibold">@_databases.Count</div>
+                <div class="small text-secondary">Enumerated from master</div>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card shadow-sm border-0">
             <div class="card-body">
-                <div class="text-muted text-uppercase small">Recent activity</div>
-                <div class="fs-3 fw-semibold">@_snapshot.RecentActivity</div>
-                <div class="small text-secondary">Executions in the last hour</div>
+                <div class="text-muted text-uppercase small">SQLHELPER</div>
+                <div class="fs-5 fw-semibold">@(SetupState.IsConfigured ? "Ready" : "Setup required")</div>
+                <div class="small text-secondary">Workspace metadata</div>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card shadow-sm border-0">
             <div class="card-body">
-                <div class="text-muted text-uppercase small">Maintenance</div>
-                <div class="fs-3 fw-semibold">@_snapshot.PendingMaintenance</div>
-                <div class="small text-secondary">Pending checks</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card shadow-sm border-0">
-            <div class="card-body">
-                <div class="text-muted text-uppercase small">Saved queries</div>
-                <div class="fs-3 fw-semibold">@_snapshot.SavedQueries</div>
-                <div class="small text-secondary">Reusable templates</div>
+                <div class="text-muted text-uppercase small">Server</div>
+                <div class="fs-6 fw-semibold">@(_serverInfo?.ServerName ?? "Unknown")</div>
+                <div class="small text-secondary">@(_serverInfo?.Edition ?? string.Empty)</div>
             </div>
         </div>
     </div>
@@ -48,46 +65,74 @@
     <div class="col-lg-6">
         <div class="card shadow-sm border-0 h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Databases</span>
-                <NavLink class="btn btn-link btn-sm" href="/databases">View all</NavLink>
+                <span>Server info</span>
+                <button class="btn btn-link btn-sm" @onclick="ReloadAsync">Reload</button>
             </div>
             <div class="card-body">
-                <ul class="list-group list-group-flush">
-                    @foreach (var db in _databases)
-                    {
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <div class="fw-semibold">@db.Name</div>
-                                <div class="small text-muted">@db.EngineVersion</div>
-                            </div>
-                            <span class="badge bg-@(db.Status == "Online" ? "success" : "warning")">@db.Status</span>
-                        </li>
-                    }
-                </ul>
+                @if (_serverInfo is null)
+                {
+                    <div class="text-muted">No server data. Ensure the profile is valid and test the connection.</div>
+                }
+                else
+                {
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Server name</dt>
+                        <dd class="col-sm-8">@_serverInfo.ServerName</dd>
+                        <dt class="col-sm-4">Edition</dt>
+                        <dd class="col-sm-8">@_serverInfo.Edition</dd>
+                        <dt class="col-sm-4">Version</dt>
+                        <dd class="col-sm-8">@_serverInfo.ProductVersion</dd>
+                        <dt class="col-sm-4">Level</dt>
+                        <dd class="col-sm-8">@_serverInfo.ProductLevel</dd>
+                    </dl>
+                }
             </div>
         </div>
     </div>
     <div class="col-lg-6">
         <div class="card shadow-sm border-0 h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Latest history</span>
-                <NavLink class="btn btn-link btn-sm" href="/history">Open history</NavLink>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>Target database</span>
+                <div class="d-flex align-items-center gap-2">
+                    <select class="form-select form-select-sm" @onchange="OnTargetChanged" value="@_targetDb">
+                        @foreach (var db in _databases)
+                        {
+                            <option value="@db.Name">@db.Name</option>
+                        }
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" @onclick='() => NavigationManager.NavigateTo("/query")'>Open runner</button>
+                </div>
             </div>
             <div class="card-body">
-                <div class="timeline">
-                    @foreach (var item in _history.Take(4))
-                    {
-                        <div class="timeline-entry">
-                            <div class="fw-semibold">@item.Title</div>
-                            <div class="small text-muted">@item.ExecutedOn.LocalDateTime</div>
-                            <div class="badge bg-secondary">@item.Status</div>
-                        </div>
-                    }
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted small">Filter databases</span>
+                    <input class="form-control form-control-sm w-50" @bind="_filter" placeholder="Name contains..." />
                 </div>
-                @if (!_history.Any())
-                {
-                    <div class="text-muted">No history yet.</div>
-                }
+                <div class="table-responsive" style="max-height: 320px;">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>State</th>
+                                <th>Recovery</th>
+                                <th>Compat</th>
+                                <th class="text-end">Size (MB)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var db in FilteredDatabases)
+                            {
+                                <tr class="@(db.Name == _targetDb ? "table-primary" : string.Empty)">
+                                    <td>@db.Name</td>
+                                    <td>@db.State</td>
+                                    <td>@db.RecoveryModel</td>
+                                    <td>@db.CompatibilityLevel</td>
+                                    <td class="text-end">@db.SizeMb</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -98,21 +143,67 @@
     <div class="alert alert-warning mt-4 d-flex align-items-center" role="alert">
         <span class="me-2" aria-hidden="true">⚙️</span>
         <div>
-            Setup is required before executing live workloads.
-            <NavLink href="/setup" class="alert-link ms-1">Open setup</NavLink>
+            Setup is required before saving notes or queries.
+            <button class="btn btn-link btn-sm" @onclick='() => NavigationManager.NavigateTo("/setup")'>Open setup</button>
         </div>
     </div>
 }
 
 @code {
-    private DashboardSnapshot _snapshot = new(0, 0, 0, 0);
-    private IReadOnlyList<DatabaseInfo> _databases = Array.Empty<DatabaseInfo>();
-    private IReadOnlyList<QueryHistoryEntry> _history = Array.Empty<QueryHistoryEntry>();
+    private ServerInformation? _serverInfo;
+    private IReadOnlyList<DatabaseOverview> _databases = Array.Empty<DatabaseOverview>();
+    private string _targetDb = "SIN";
+    private string _filter = string.Empty;
+    private bool _hasProfile;
 
     protected override async Task OnInitializedAsync()
     {
-        _snapshot = await SqlHelperService.GetDashboardAsync();
-        _databases = await SqlHelperService.GetDatabasesAsync();
-        _history = await SqlHelperService.GetHistoryAsync();
+        ConnectionState.OnChange += HandleProfileChanged;
+        await ConnectionState.EnsureLoadedAsync();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _hasProfile = ConnectionState.Profile.HasRequiredValues;
+        _targetDb = ConnectionState.Profile.DefaultTargetDb;
+        if (!_hasProfile)
+        {
+            _databases = Array.Empty<DatabaseOverview>();
+            _serverInfo = null;
+            SetupState.SetSetupStatus(false);
+            return;
+        }
+
+        try
+        {
+            _serverInfo = await Workspace.GetServerInformationAsync();
+            _databases = await Workspace.GetDatabasesAsync();
+            var setupComplete = await Workspace.IsSetupCompleteAsync();
+            SetupState.SetSetupStatus(setupComplete);
+        }
+        catch (Exception ex)
+        {
+            Toasts.ShowDanger("Dashboard", ex.Message);
+        }
+    }
+
+    private async Task OnTargetChanged(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString() ?? "SIN";
+        _targetDb = value;
+        await ConnectionState.UpdateTargetDatabaseAsync(value);
+    }
+
+    private IEnumerable<DatabaseOverview> FilteredDatabases =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _databases
+            : _databases.Where(d => d.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    private void HandleProfileChanged() => InvokeAsync(ReloadAsync);
+
+    public void Dispose()
+    {
+        ConnectionState.OnChange -= HandleProfileChanged;
     }
 }

@@ -1,30 +1,57 @@
-@page "/queries/editor"
-@inject SqlHelperService SqlHelperService
+@page "/query"
+@page "/query/{Id:guid}"
+@implements IDisposable
+@inject SqlWorkspaceService Workspace
+@inject ConnectionState ConnectionState
 @inject ToastService ToastService
+@inject NavigationManager Navigation
 
-<PageTitle>Query Editor</PageTitle>
+<PageTitle>Query Runner</PageTitle>
 
-<h1 class="h3 mb-4">Query editor</h1>
+<h1 class="h3 mb-3">Query runner</h1>
+
+@if (!_hasProfile)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2">🔌</span>
+        <div>
+            Save a connection profile before running queries.
+            <button class="btn btn-link btn-sm" @onclick='() => Navigation.NavigateTo("/connect")'>Go to Connect</button>
+        </div>
+    </div>
+}
 
 <div class="row g-3">
-    <div class="col-lg-7">
+    <div class="col-lg-6">
         <div class="card shadow-sm border-0 h-100">
-            <div class="card-header">SQL</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>SQL</span>
+                <div class="d-flex align-items-center gap-2">
+                    <select class="form-select form-select-sm" @onchange="OnDatabaseChanged" value="@_selectedDatabase">
+                        @foreach (var db in _databases)
+                        {
+                            <option value="@db.Name">@db.Name</option>
+                        }
+                    </select>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="Clear">Clear</button>
+                </div>
+            </div>
             <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label">Statement</label>
-                    <InputTextArea class="form-control" @bind-Value="_sql" Rows="10" placeholder="Write your SQL here"></InputTextArea>
+                    <InputTextArea class="form-control" @bind-Value="_sql" Rows="12" placeholder="Write your SQL here"></InputTextArea>
                 </div>
                 <div class="d-flex justify-content-end gap-2">
-                    <button class="btn btn-outline-secondary" @onclick="Clear" type="button">Clear</button>
-                    <button class="btn btn-primary" @onclick="ExecuteAsync" disabled="_isExecuting">Execute</button>
+                    <button class="btn btn-primary" @onclick="ExecuteAsync" disabled="@(!_hasProfile || _isExecuting)">Run</button>
                 </div>
             </div>
         </div>
     </div>
-    <div class="col-lg-5">
+    <div class="col-lg-6">
         <div class="card shadow-sm border-0 h-100">
-            <div class="card-header">Result</div>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>Result</span>
+                <button class="btn btn-link btn-sm" @onclick='() => Navigation.NavigateTo("/library")'>Open library</button>
+            </div>
             <div class="card-body">
                 <SqlResultGrid Result="_result" IsBusy="_isExecuting" />
             </div>
@@ -33,9 +60,72 @@
 </div>
 
 @code {
-    private string _sql = "SELECT 1 as Result";
-    private SqlQueryResult? _result;
+    [Parameter] public Guid? Id { get; set; }
+
+    private string _sql = "SELECT @@VERSION;";
+    private QueryExecutionResult? _result;
     private bool _isExecuting;
+    private bool _hasProfile;
+    private IReadOnlyList<DatabaseOverview> _databases = Array.Empty<DatabaseOverview>();
+    private string _selectedDatabase = "SIN";
+
+    protected override async Task OnInitializedAsync()
+    {
+        ConnectionState.OnChange += ProfileChanged;
+        await ConnectionState.EnsureLoadedAsync();
+        await LoadMetadataAsync();
+        if (Id.HasValue)
+        {
+            await LoadSavedQueryAsync(Id.Value);
+        }
+    }
+
+    private async Task LoadMetadataAsync()
+    {
+        _hasProfile = ConnectionState.Profile.HasRequiredValues;
+        _selectedDatabase = ConnectionState.Profile.DefaultTargetDb;
+        if (!_hasProfile)
+        {
+            _databases = Array.Empty<DatabaseOverview>();
+            return;
+        }
+
+        try
+        {
+            _databases = await Workspace.GetDatabasesAsync();
+            if (!_databases.Any(d => d.Name.Equals(_selectedDatabase, StringComparison.OrdinalIgnoreCase)))
+            {
+                _selectedDatabase = _databases.FirstOrDefault()?.Name ?? "SIN";
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowDanger("Query", ex.Message);
+            _hasProfile = false;
+        }
+    }
+
+    private async Task LoadSavedQueryAsync(Guid id)
+    {
+        try
+        {
+            var saved = await Workspace.GetSavedQueryAsync(id);
+            if (saved is not null)
+            {
+                _sql = saved.Statement;
+                if (!string.IsNullOrWhiteSpace(saved.DatabaseName))
+                {
+                    _selectedDatabase = saved.DatabaseName;
+                }
+
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowWarning("Library", $"Unable to load saved query: {ex.Message}");
+        }
+    }
 
     private void Clear()
     {
@@ -46,18 +136,45 @@
     private async Task ExecuteAsync()
     {
         _isExecuting = true;
+        _result = null;
         try
         {
-            _result = await SqlHelperService.ExecuteQueryAsync(_sql);
-            ToastService.ShowSuccess("Query", "Execution complete");
+            _result = await Workspace.ExecuteQueryAsync(_sql, _selectedDatabase);
+            if (_result.Success)
+            {
+                ToastService.ShowSuccess("Query", "Execution complete");
+            }
+            else
+            {
+                ToastService.ShowWarning("Query", _result.Message);
+            }
         }
         catch (Exception ex)
         {
+            _result = new QueryExecutionResult(false, Array.Empty<QueryResultSet>(), "Failed to execute query.", ex.Message);
             ToastService.ShowDanger("Query", ex.Message);
         }
         finally
         {
             _isExecuting = false;
         }
+    }
+
+    private async Task OnDatabaseChanged(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString() ?? "SIN";
+        _selectedDatabase = value;
+        await ConnectionState.UpdateTargetDatabaseAsync(value);
+    }
+
+    private async void ProfileChanged()
+    {
+        await LoadMetadataAsync();
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        ConnectionState.OnChange -= ProfileChanged;
     }
 }

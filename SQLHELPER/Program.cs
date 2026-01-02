@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using SQLHELPER.Components;
 using SQLHELPER.Services;
 
@@ -6,19 +7,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddSingleton<BootstrapService>();
+
+builder.Services.AddScoped<ProtectedLocalStorage>();
+builder.Services.AddScoped<ConnectionState>();
+builder.Services.AddScoped<SqlConnectionFactory>();
+builder.Services.AddScoped<SqlWorkspaceService>();
 
 builder.Services.AddSingleton<SetupState>();
 builder.Services.AddSingleton<SqlHelperService>();
 builder.Services.AddSingleton<ToastService>();
 
 var app = builder.Build();
-
-using (var scope = app.Services.CreateScope())
-{
-    var bootstrapService = scope.ServiceProvider.GetRequiredService<BootstrapService>();
-    await bootstrapService.InitializeAsync();
-}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

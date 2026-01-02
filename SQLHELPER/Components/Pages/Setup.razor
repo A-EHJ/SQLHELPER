@@ -1,43 +1,136 @@
 @page "/setup"
+@implements IDisposable
+@inject SqlWorkspaceService Workspace
+@inject ConnectionState ConnectionState
 @inject SetupState SetupState
 @inject ToastService ToastService
+@inject NavigationManager NavigationManager
 
 <PageTitle>Setup</PageTitle>
 
-<h1 class="h3 mb-4">Setup</h1>
+<h1 class="h3 mb-3">SQLHELPER Setup</h1>
 
-<div class="card shadow-sm border-0">
+@if (!_hasProfile)
+{
+    <div class="alert alert-warning d-flex align-items-center" role="alert">
+        <span class="me-2">🔌</span>
+        <div>
+            Define a connection profile before running setup.
+            <button class="btn btn-link btn-sm" @onclick='() => NavigationManager.NavigateTo("/connect")'>Go to Connect</button>
+        </div>
+    </div>
+}
+
+<div class="card shadow-sm border-0 mb-3">
     <div class="card-body">
-        <p class="lead">Use this space to verify configuration before enabling production execution.</p>
-        <ul>
-            <li>Validate environment variables and connection strings.</li>
-            <li>Confirm credentials for target databases.</li>
-            <li>Define default database and schema preferences.</li>
-        </ul>
-
-        @if (SetupState.IsSetupRequired)
+        <p class="lead mb-3">The setup script provisions the SQLHELPER database plus Notes and SavedQueries tables.</p>
+        <div class="mb-2 d-flex align-items-center gap-2">
+            <span class="badge bg-@(_isReady ? "success" : "warning")">@(_isReady ? "Ready" : "Pending")</span>
+            <button class="btn btn-outline-primary btn-sm" @onclick="CheckStatusAsync">Check status</button>
+        </div>
+        <label class="form-label fw-semibold">T-SQL script</label>
+        <textarea class="form-control font-monospace" style="min-height: 240px;" readonly>@_script</textarea>
+        <div class="d-flex align-items-center gap-2 mt-3">
+            <button class="btn btn-success" @onclick="RunSetupAsync" disabled="@(!_hasProfile || _isRunning)">
+                @_runLabel
+            </button>
+            <button class="btn btn-outline-secondary" @onclick="CheckStatusAsync">Refresh</button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_resultMessage))
         {
-            <div class="alert alert-warning">Setup required. Complete the checklist and confirm to continue.</div>
-            <button class="btn btn-success" @onclick="Complete">Mark as configured</button>
-        }
-        else
-        {
-            <div class="alert alert-success">Setup complete. You can re-open this page to reset.</div>
-            <button class="btn btn-outline-danger" @onclick="Reset">Require setup again</button>
+            <div class="alert @( _lastRunSucceeded ? "alert-success" : "alert-danger") mt-3">
+                @_resultMessage
+            </div>
         }
     </div>
 </div>
 
+<div class="alert alert-info">
+    <ul class="mb-0">
+        <li>Connections run against <code>master</code> to create <code>SQLHELPER</code> automatically.</li>
+        <li>Setup uses your profile credentials; passwords never leave ProtectedLocalStorage.</li>
+        <li>If the database already exists, only missing tables are created.</li>
+    </ul>
+</div>
+
 @code {
-    private void Complete()
+    private string _script = string.Empty;
+    private bool _isRunning;
+    private bool _isReady;
+    private bool _hasProfile;
+    private string? _resultMessage;
+    private bool _lastRunSucceeded;
+
+    private string _runLabel => _isRunning ? "Running..." : "Run setup";
+
+    protected override async Task OnInitializedAsync()
     {
-        SetupState.MarkConfigured();
-        ToastService.ShowSuccess("Setup", "Configuration marked as complete.");
+        ConnectionState.OnChange += OnProfileChanged;
+        await ConnectionState.EnsureLoadedAsync();
+        _script = Workspace.SetupScript;
+        await CheckStatusAsync();
     }
 
-    private void Reset()
+    private async Task RunSetupAsync()
     {
-        SetupState.MarkRequiresSetup();
-        ToastService.ShowWarning("Setup", "Marked as requiring setup.");
+        if (!_hasProfile)
+        {
+            ToastService.ShowWarning("Setup", "Define a connection profile first.");
+            return;
+        }
+
+        _isRunning = true;
+        _resultMessage = null;
+        try
+        {
+            var result = await Workspace.RunSetupAsync();
+            _lastRunSucceeded = result.Success;
+            _resultMessage = result.Message;
+            _isReady = result.Success && await Workspace.IsSetupCompleteAsync();
+            SetupState.SetSetupStatus(_isReady);
+        }
+        catch (Exception ex)
+        {
+            _lastRunSucceeded = false;
+            _resultMessage = ex.Message;
+            ToastService.ShowDanger("Setup", ex.Message);
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    private async Task CheckStatusAsync()
+    {
+        _hasProfile = ConnectionState.Profile.HasRequiredValues;
+        if (!_hasProfile)
+        {
+            _isReady = false;
+            SetupState.SetSetupStatus(false);
+            return;
+        }
+
+        try
+        {
+            _isReady = await Workspace.IsSetupCompleteAsync();
+            SetupState.SetSetupStatus(_isReady);
+        }
+        catch (Exception ex)
+        {
+            _isReady = false;
+            _resultMessage = ex.Message;
+        }
+    }
+
+    private async void OnProfileChanged()
+    {
+        await CheckStatusAsync();
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        ConnectionState.OnChange -= OnProfileChanged;
     }
 }

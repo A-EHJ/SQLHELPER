@@ -9,39 +9,60 @@ else if (Result is null)
 {
     <div class="alert alert-secondary">Run a query to see results.</div>
 }
-else if (Result.Rows.Count == 0)
+else if (!Result.Success)
+{
+    <div class="alert alert-danger">
+        <div class="fw-semibold">@Result.Message</div>
+        @if (!string.IsNullOrWhiteSpace(Result.Error))
+        {
+            <div class="small">@Result.Error</div>
+        }
+    </div>
+}
+else if (!Result.ResultSets.Any() || Result.ResultSets.All(r => r.Rows.Count == 0))
 {
     <div class="alert alert-warning">No rows returned. @Result.Message</div>
 }
 else
 {
-    <div class="table-responsive">
-        <table class="table table-striped table-sm align-middle">
-            <thead>
-                <tr>
-                    @foreach (var column in Result.Columns)
-                    {
-                        <th>@column</th>
-                    }
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var row in Result.Rows)
-                {
-                    <tr>
-                        @foreach (var column in Result.Columns)
+    var index = 1;
+    foreach (var set in Result.ResultSets)
+    {
+        <div class="mb-3">
+            @if (Result.ResultSets.Count > 1)
+            {
+                <div class="small text-muted mb-1">Result set @index</div>
+            }
+            <div class="table-responsive">
+                <table class="table table-striped table-sm align-middle">
+                    <thead>
+                        <tr>
+                            @foreach (var column in set.Columns)
+                            {
+                                <th>@column</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in set.Rows)
                         {
-                            <td>@(row.TryGetValue(column, out var value) ? value : null)</td>
+                            <tr>
+                                @foreach (var column in set.Columns)
+                                {
+                                    <td>@(row.TryGetValue(column, out var value) ? value : null)</td>
+                                }
+                            </tr>
                         }
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        index++;
+    }
     <div class="small text-muted">@Result.Message</div>
 }
 
 @code {
-    [Parameter] public SqlQueryResult? Result { get; set; }
+    [Parameter] public QueryExecutionResult? Result { get; set; }
     [Parameter] public bool IsBusy { get; set; }
 }

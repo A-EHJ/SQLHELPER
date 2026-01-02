@@ -13,8 +13,8 @@ public class SetupState
         _isConfigured = _isConfiguredFromConfig;
     }
 
-    public bool IsConfigured => _isConfigured;
-    public bool IsSetupRequired => !_isConfigured;
+    public bool IsConfigured => _isConfigured || _isConfiguredFromConfig;
+    public bool IsSetupRequired => !IsConfigured;
 
     public event Action? OnChange;
 
@@ -37,6 +37,12 @@ public class SetupState
         }
 
         _isConfigured = false;
+        NotifyStateChanged();
+    }
+
+    public void SetSetupStatus(bool isConfigured)
+    {
+        _isConfigured = isConfigured || _isConfiguredFromConfig;
         NotifyStateChanged();
     }
 

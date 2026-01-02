@@ -1,29 +1,18 @@
-# SQLHELPER
+# SQL Maintenance Helper
 
-Esta aplicación ejecuta un bootstrap ligero de SQL Server al iniciar para garantizar que exista la base de datos **SqlMaintenanceHub**, su esquema `maint` y algunas semillas opcionales.
+Aplicación Blazor Server para conectarse a una instancia de SQL Server, crear la base `SQLHELPER` y gestionar notas/queries de mantenimiento.
 
-## Scripts de base de datos
-Los scripts viven en el directorio `sql/` y se copian junto con la aplicación publicada:
+## Ejecutar la app
+1. Requiere .NET 8 SDK.
+2. Desde la raíz del repo: `dotnet run --project SQLHELPER/SQLHELPER.csproj`.
+3. Abre el navegador en la URL indicada por la consola (p.ej. `https://localhost:5001`).
 
-1. `000_create_hub_db.sql`: crea la base **SqlMaintenanceHub** en caso de que no exista (usa `IF DB_ID(...) IS NULL`).
-2. `001_create_schema_tables.sql`: asegura el esquema `maint` y crea tablas/índices principales con comprobaciones `IF OBJECT_ID(...) IS NULL`.
-3. `002_seed.sql`: inserta datos de ejemplo solo si no existen.
+## Conectar contra tu instancia
+1. En la UI abre **Connect** (`/connect`).
+2. Completa Server, User, Password, DefaultTargetDb (por defecto `SIN`) y las opciones de Encrypt/TrustServerCertificate.
+3. Guarda y presiona **Test connection** para validar. El perfil se almacena en `ProtectedLocalStorage` del navegador (no se guardan credenciales en archivos).
 
-Los scripts están diseñados para ser idempotentes, por lo que pueden ejecutarse varias veces sin efectos adversos.
-
-## Configuración de la conexión
-Define una cadena llamada `SqlServer` en `appsettings.json`, `appsettings.Development.json` o variables de entorno. La cadena debe apuntar a la instancia de SQL Server (por ejemplo `Server=localhost;Database=master;Trusted_Connection=True;TrustServerCertificate=True;`).
-
-El bootstrap usa esa cadena para conectarse a `master` al ejecutar `000_create_hub_db.sql` y vuelve a usarla contra `SqlMaintenanceHub` para los scripts restantes.
-
-## Ejecución durante el arranque
-`BootstrapService` se registra en `Program.cs` y se ejecuta al iniciar la aplicación:
-
-- Busca los archivos en `sql/` (el `ContentRootPath`).
-- Ejecuta los scripts en orden (000, 001, 002), separando lotes por la palabra clave `GO`.
-- Omite scripts inexistentes o vacíos pero registra avisos.
-
-Si falta la cadena de conexión o el directorio `sql/`, el proceso se omite y se registra una advertencia.
-
-## Personalizar semillas y tareas
-Puedes agregar más archivos SQL dentro de `sql/` y ejecutarlos desde `BootstrapService`. Cualquier archivo adicional debería incluir comprobaciones `IF OBJECT_ID(...) IS NULL` o `IF NOT EXISTS` para seguir siendo seguro en ejecuciones repetidas.
+## Ejecutar Setup
+1. Abre **Setup** (`/setup`).
+2. Revisa el script T-SQL que crea la base `SQLHELPER` con las tablas `dbo.Notes` y `dbo.SavedQueries`.
+3. Presiona **Run setup**. El script se ejecuta usando la conexión a `master` y deja la base lista para Notes/Library.
