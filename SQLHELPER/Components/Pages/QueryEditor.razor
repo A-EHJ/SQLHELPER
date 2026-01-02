@@ -1,0 +1,63 @@
+@page "/queries/editor"
+@inject SqlHelperService SqlHelperService
+@inject ToastService ToastService
+
+<PageTitle>Query Editor</PageTitle>
+
+<h1 class="h3 mb-4">Query editor</h1>
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header">SQL</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Statement</label>
+                    <InputTextArea class="form-control" @bind-Value="_sql" Rows="10" placeholder="Write your SQL here"></InputTextArea>
+                </div>
+                <div class="d-flex justify-content-end gap-2">
+                    <button class="btn btn-outline-secondary" @onclick="Clear" type="button">Clear</button>
+                    <button class="btn btn-primary" @onclick="ExecuteAsync" disabled="_isExecuting">Execute</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card shadow-sm border-0 h-100">
+            <div class="card-header">Result</div>
+            <div class="card-body">
+                <SqlResultGrid Result="_result" IsBusy="_isExecuting" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _sql = "SELECT 1 as Result";
+    private SqlQueryResult? _result;
+    private bool _isExecuting;
+
+    private void Clear()
+    {
+        _sql = string.Empty;
+        _result = null;
+    }
+
+    private async Task ExecuteAsync()
+    {
+        _isExecuting = true;
+        try
+        {
+            _result = await SqlHelperService.ExecuteQueryAsync(_sql);
+            ToastService.ShowSuccess("Query", "Execution complete");
+        }
+        catch (Exception ex)
+        {
+            ToastService.ShowDanger("Query", ex.Message);
+        }
+        finally
+        {
+            _isExecuting = false;
+        }
+    }
+}

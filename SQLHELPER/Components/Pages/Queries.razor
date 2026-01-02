@@ -1,0 +1,40 @@
+@page "/queries"
+@inject SqlHelperService SqlHelperService
+
+<PageTitle>Queries</PageTitle>
+
+<h1 class="h3 mb-4">Queries</h1>
+
+<div class="card shadow-sm border-0">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <div class="fw-semibold">Saved queries</div>
+            <div class="small text-muted">Templates ready to execute</div>
+        </div>
+        <NavLink class="btn btn-primary btn-sm" href="/queries/editor">Open editor</NavLink>
+    </div>
+    <div class="list-group list-group-flush">
+        @foreach (var query in _queries)
+        {
+            <div class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="fw-semibold">@query.Title</div>
+                    <div class="small text-muted">@query.Statement</div>
+                    <span class="badge bg-info text-dark">@query.Database</span>
+                </div>
+                <div class="text-end">
+                    <NavLink class="btn btn-sm btn-outline-primary" href="/queries/editor">Load</NavLink>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<QueryDefinition> _queries = Array.Empty<QueryDefinition>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _queries = await SqlHelperService.GetSavedQueriesAsync();
+    }
+}

@@ -1,10 +1,15 @@
 using SQLHELPER.Components;
+using SQLHELPER.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddSingleton<SetupState>();
+builder.Services.AddSingleton<SqlHelperService>();
+builder.Services.AddSingleton<ToastService>();
 
 var app = builder.Build();
 

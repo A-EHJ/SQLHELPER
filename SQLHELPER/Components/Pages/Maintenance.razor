@@ -1,0 +1,54 @@
+@page "/maintenance"
+@inject SqlHelperService SqlHelperService
+@inject ToastService ToastService
+
+<PageTitle>Maintenance</PageTitle>
+
+<h1 class="h3 mb-4">Maintenance</h1>
+
+<div class="card shadow-sm border-0">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <div class="fw-semibold">Scheduled tasks</div>
+            <div class="small text-muted">Routines and operational checks</div>
+        </div>
+        <button class="btn btn-outline-primary btn-sm" @onclick="TriggerAll">Run all</button>
+    </div>
+    <ul class="list-group list-group-flush">
+        @foreach (var job in _jobs)
+        {
+            <li class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="fw-semibold">@job.Name</div>
+                    <div class="small text-muted">@job.Description</div>
+                    <div class="small text-secondary">@job.ScheduledFor.LocalDateTime</div>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-secondary">@job.Status</span>
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => Trigger(job.Name)">Run</button>
+                    </div>
+                </div>
+            </li>
+        }
+    </ul>
+</div>
+
+@code {
+    private IReadOnlyList<MaintenanceJob> _jobs = Array.Empty<MaintenanceJob>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _jobs = await SqlHelperService.GetMaintenanceJobsAsync();
+    }
+
+    private void Trigger(string job)
+    {
+        ToastService.ShowSuccess("Maintenance", $"Triggered {job}.");
+    }
+
+    private void TriggerAll()
+    {
+        ToastService.ShowInfo("Maintenance", "Triggered all scheduled tasks.");
+    }
+}
